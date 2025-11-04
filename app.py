@@ -9,7 +9,16 @@ import os
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+# Enable CORS for production frontend
+CORS(app, resources={
+    r"/api/*": {
+        "origins": [
+            "https://nexoventlabs-leads.vercel.app",
+            "http://localhost:5173",  # For local development
+            "http://localhost:5174"
+        ]
+    }
+})
 
 # MongoDB connection
 MONGODB_URL = os.getenv('MONGODB_URL')
