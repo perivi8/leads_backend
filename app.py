@@ -45,6 +45,11 @@ def home():
         'status': 'success'
     })
 
+# Lightweight health check for cron jobs (minimal response)
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    return jsonify({'status': 'ok'}), 200
+
 # Test MongoDB connection
 @app.route('/api/test-connection', methods=['GET'])
 def test_connection():
