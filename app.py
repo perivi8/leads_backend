@@ -20,22 +20,31 @@ CORS(app, resources={
     }
 })
 
-# MongoDB connection
+# MongoDB connection - Lazy initialization to avoid blocking startup
 MONGODB_URL = os.getenv('MONGODB_URL')
-client = MongoClient(MONGODB_URL)
+client = None
+db = None
+collection = None
 
-# Database and collection
-db = client['business_tracker']  # You can change the database name
-collection = db['businesses']  # You can change the collection name
-
-# Test MongoDB connection on startup
-try:
-    client.admin.command('ping')
-    print("✅ MongoDB connection successful!")
-    print(f"📊 Connected to database: business_tracker")
-except Exception as e:
-    print(f"❌ MongoDB connection failed: {str(e)}")
-    print("⚠️  Please check your MONGODB_URL in .env file")
+def get_db_connection():
+    """Lazy initialization of MongoDB connection"""
+    global client, db, collection
+    if client is None:
+        try:
+            client = MongoClient(
+                MONGODB_URL,
+                serverSelectionTimeoutMS=5000,  # 5 second timeout
+                connectTimeoutMS=5000
+            )
+            db = client['business_tracker']
+            collection = db['businesses']
+            # Test connection
+            client.admin.command('ping')
+            print("✅ MongoDB connection successful!")
+        except Exception as e:
+            print(f"❌ MongoDB connection failed: {str(e)}")
+            client = None
+    return client, db, collection
 
 # Test route
 @app.route('/', methods=['GET'])
@@ -54,6 +63,10 @@ def health_check():
 @app.route('/api/test-connection', methods=['GET'])
 def test_connection():
     try:
+        # Initialize connection if needed
+        client, db, collection = get_db_connection()
+        if client is None:
+            raise Exception("Failed to establish MongoDB connection")
         # Ping the database
         client.admin.command('ping')
         return jsonify({
@@ -71,7 +84,10 @@ def test_connection():
 @app.route('/api/businesses', methods=['GET'])
 def get_businesses():
     try:
-        businesses = list(collection.find({}, {'_id': 0}))
+        client, db, coll = get_db_connection()
+        if coll is None:
+            raise Exception("Database connection not available")
+        businesses = list(coll.find({}, {'_id': 0}))
         return jsonify({
             'data': businesses,
             'status': 'success'
@@ -87,11 +103,14 @@ def get_businesses():
 @app.route('/api/businesses', methods=['POST'])
 def create_business():
     try:
+        client, db, coll = get_db_connection()
+        if coll is None:
+            raise Exception("Database connection not available")
         data = request.get_json()
         # Add createdAt timestamp if not present
         if 'createdAt' not in data:
             data['createdAt'] = datetime.utcnow().isoformat()
-        result = collection.insert_one(data)
+        result = coll.insert_one(data)
         return jsonify({
             'message': 'Business created successfully',
             'status': 'success',
@@ -108,8 +127,11 @@ def create_business():
 @app.route('/api/businesses/<business_id>', methods=['PUT'])
 def update_business(business_id):
     try:
+        client, db, coll = get_db_connection()
+        if coll is None:
+            raise Exception("Database connection not available")
         data = request.get_json()
-        result = collection.update_one(
+        result = coll.update_one(
             {'id': int(business_id)},
             {'$set': data}
         )
@@ -134,7 +156,10 @@ def update_business(business_id):
 @app.route('/api/businesses/<business_id>', methods=['DELETE'])
 def delete_business(business_id):
     try:
-        result = collection.delete_one({'id': int(business_id)})
+        client, db, coll = get_db_connection()
+        if coll is None:
+            raise Exception("Database connection not available")
+        result = coll.delete_one({'id': int(business_id)})
         if result.deleted_count > 0:
             return jsonify({
                 'message': 'Business deleted successfully',
